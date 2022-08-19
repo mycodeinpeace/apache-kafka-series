@@ -56,6 +56,7 @@ public class ConsumerDemoAssignSeek {
                     keepOnReading = false; // to exit the while loop
                     break; // to exit the for loop
                 }
+                numberOfMessagesReadSoFar++;
             }
         }
 
