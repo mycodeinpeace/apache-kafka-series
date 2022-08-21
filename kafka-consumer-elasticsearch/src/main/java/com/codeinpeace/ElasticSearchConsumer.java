@@ -1,5 +1,6 @@
 package com.codeinpeace;
 
+import com.google.gson.JsonParser;
 import org.apache.http.HttpHost;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.UsernamePasswordCredentials;
@@ -40,15 +41,17 @@ public class ElasticSearchConsumer {
 
             for (ConsumerRecord<String, String> record : records){
 
+                String id = extractIdFromTweet(record.value());
+
                 // where we insert data into ElasticSearch
                 IndexRequest indexRequest = new IndexRequest(
                         "twitter",
-                        "tweets"
+                        "tweets",
+                        id // this is to make our consumer idempotent
                 ).source(record.value(), XContentType.JSON);
 
                 IndexResponse indexResponse = client.index(indexRequest, RequestOptions.DEFAULT);
-                String id = indexResponse.getId();
-                logger.info(id);
+                logger.info(indexResponse.getId());
 
                 // introduce a small delay
                 try {
@@ -61,6 +64,16 @@ public class ElasticSearchConsumer {
 
         // close the client gracefully
         //client.close(); // Not being used anymore
+    }
+
+    private static JsonParser jsonParser = new JsonParser();
+
+    private static String extractIdFromTweet(String tweetJson){
+        // gson library
+        return jsonParser.parse(tweetJson)
+                .getAsJsonObject()
+                .get("id_str")
+                .getAsString();
     }
 
     public static KafkaConsumer<String, String> createConsumer(String topic) {
