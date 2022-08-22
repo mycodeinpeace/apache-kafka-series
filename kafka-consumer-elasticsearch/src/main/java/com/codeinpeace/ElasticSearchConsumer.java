@@ -12,6 +12,8 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.elasticsearch.action.bulk.BulkRequest;
+import org.elasticsearch.action.bulk.BulkResponse;
 import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.index.IndexResponse;
 import org.elasticsearch.client.RequestOptions;
@@ -42,19 +44,24 @@ public class ElasticSearchConsumer {
             Integer recordCount = records.count();
             logger.info("Received " + recordCount + " records");
 
+            BulkRequest bulkRequest = new BulkRequest();
+
             for (ConsumerRecord<String, String> record : records){
 
-                String id = extractIdFromTweet(record.value());
+                try {
+                    String id = extractIdFromTweet(record.value());
 
-                // where we insert data into ElasticSearch
-                IndexRequest indexRequest = new IndexRequest(
-                        "twitter",
-                        "tweets",
-                        id // this is to make our consumer idempotent
-                ).source(record.value(), XContentType.JSON);
+                    // where we insert data into ElasticSearch
+                    IndexRequest indexRequest = new IndexRequest(
+                            "twitter",
+                            "tweets",
+                            id // this is to make our consumer idempotent
+                    ).source(record.value(), XContentType.JSON);
 
-                IndexResponse indexResponse = client.index(indexRequest, RequestOptions.DEFAULT);
-                logger.info(indexResponse.getId());
+                    bulkRequest.add(indexRequest); // we add to our bulk request (takes no time)
+                } catch (NullPointerException e){
+                    logger.warn("skipping bad data: " + record.value());
+                }
 
                 // introduce a small delay
                 try {
@@ -63,14 +70,17 @@ public class ElasticSearchConsumer {
                     throw new RuntimeException(e);
                 }
             }
-            logger.info("Committing offsets...");
-            consumer.commitSync();
-            logger.info("Offsets have been committed");
-            // introduce a small delay
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
+
+            if (recordCount > 0) {
+                BulkResponse bulkItemResponses = client.bulk(bulkRequest, RequestOptions.DEFAULT);
+                logger.info("Committing offsets...");
+                consumer.commitSync();
+                logger.info("Offsets have been committed");
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
             }
         }
 
